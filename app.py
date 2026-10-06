@@ -4,13 +4,13 @@ import argparse
 from datetime import datetime
 import sys
 
-from PyQt6.QtCore import QProcess, QProcessEnvironment, QSignalBlocker, QTimer, Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import QPointF, QSize, QProcess, QProcessEnvironment, QSignalBlocker, QTimer, Qt
+from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
     QPushButton, QPlainTextEdit, QSplitter, QStackedWidget, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QAbstractItemView,
+    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QAbstractItemView, QScrollArea,
 )
 
 from backend import (Command, Demo, boolean_command, context_command,
@@ -18,40 +18,79 @@ from backend import (Command, Demo, boolean_command, context_command,
                      parse_ports, parse_status, port_command, restore_command)
 
 
-STYLE = """
-QWidget { background: #101820; color: #e3edf5; font-size: 14px; }
-QMainWindow { background: #101820; }
-QLabel#title { font-size: 28px; font-weight: 700; }
-QLabel#subtitle { color: #99afbf; }
-QLabel#badge { background: #183c3c; color: #7be1be; border-radius: 6px; padding: 8px 12px; }
-QLabel#notice { background: #253342; color: #c6dae8; padding: 12px; border-radius: 6px; }
-QListWidget { background: #14212d; border: none; padding: 8px; }
-QListWidget::item { padding: 15px 12px; border-radius: 6px; margin: 3px 0; }
-QListWidget::item:selected { background: #224c52; color: #8ce8cf; }
-QPushButton { background: #243746; border: 1px solid #385162; border-radius: 6px; padding: 9px 15px; }
-QPushButton:hover { background: #304b5d; }
-QPushButton:disabled { color: #637787; background: #1b2732; }
-QPushButton#primary { background: #67d7b4; color: #102b24; border: none; font-weight: 600; }
-QPushButton#primary:hover { background: #93ebcf; }
-QPushButton#primary:disabled { background: #294b44; color: #75998c; }
-QLineEdit, QComboBox, QPlainTextEdit, QTableWidget {
- background: #15232f; border: 1px solid #314554; border-radius: 5px; padding: 7px; selection-background-color: #285b60;
-}
-QHeaderView::section { background: #223443; color: #b9cfde; border: none; padding: 10px; }
-QTableWidget { gridline-color: #243543; }
-QTableWidget::item { padding: 5px; }
-QCheckBox { spacing: 8px; }
-QStatusBar { background: #14212d; color: #afc4d2; }
-QSplitter::handle { background: #304553; height: 3px; }
-"""
+from themes import COLORS, ThemeController, stylesheet
+
+# Kept as a convenience for embedding and previews. Runtime uses ThemeController.
+STYLE = stylesheet("dark")
 
 
 def button(text, callback, primary=False):
     widget = QPushButton(text)
+    widget.setMinimumHeight(38)
     if primary:
         widget.setObjectName("primary")
     widget.clicked.connect(callback)
     return widget
+
+
+def navigation_icon(index, color):
+    """Small vector icons that stay sharp and match either palette."""
+    pixmap = QPixmap(48, 48)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.scale(2, 2)
+    painter.setPen(QPen(QColor(color), 1.6, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    if index == 0:
+        path = QPainterPath(QPointF(12, 3))
+        path.lineTo(20, 6)
+        path.lineTo(19, 13)
+        path.quadTo(18, 18, 12, 21)
+        path.quadTo(6, 18, 5, 13)
+        path.lineTo(4, 6)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.drawLine(8, 12, 11, 15)
+        painter.drawLine(11, 15, 16, 9)
+    elif index == 1:
+        for y, x in ((6, 9), (12, 15), (18, 8)):
+            painter.drawLine(4, y, 20, y)
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(QPointF(x, y), 2, 2)
+    elif index == 2:
+        painter.drawRect(8, 3, 8, 5)
+        painter.drawLine(12, 8, 12, 13)
+        painter.drawLine(5, 13, 19, 13)
+        for x in (5, 12, 19):
+            painter.drawLine(x, 13, x, 17)
+            painter.drawRect(x - 2, 17, 4, 4)
+    elif index == 3:
+        path = QPainterPath(QPointF(3, 7))
+        for x, y in ((3, 5), (10, 5), (12, 8), (21, 8), (21, 19), (3, 19)):
+            path.lineTo(x, y)
+        path.closeSubpath()
+        painter.drawPath(path)
+    elif index == 4:
+        for y in (5, 10, 15):
+            painter.drawLine(3, y + 3, 12, y + 7)
+            painter.drawLine(12, y + 7, 21, y + 3)
+        painter.drawLine(3, 8, 12, 4)
+        painter.drawLine(12, 4, 21, 8)
+    elif index == 5:
+        painter.drawEllipse(4, 3, 13, 13)
+        painter.drawLine(15, 15, 21, 21)
+        painter.drawLine(10, 6, 10, 11)
+        painter.drawPoint(10, 13)
+    else:
+        painter.drawEllipse(6, 6, 12, 12)
+        painter.drawEllipse(10, 10, 4, 4)
+        painter.translate(12, 12)
+        for _ in range(8):
+            painter.drawLine(0, -7, 0, -10)
+            painter.rotate(45)
+    painter.end()
+    return QIcon(pixmap)
 
 
 def note(text):
@@ -82,7 +121,9 @@ def table(headers):
     widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     widget.verticalHeader().hide()
-    widget.setAlternatingRowColors(False)
+    widget.setAlternatingRowColors(True)
+    widget.verticalHeader().setDefaultSectionSize(40)
+    widget.setShowGrid(False)
     return widget
 
 
@@ -93,8 +134,6 @@ def fill_table(widget, rows):
     for row, values in enumerate(rows):
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            if value in ("on", "off"):
-                item.setForeground(QColor("#7be1be" if value == "on" else "#a5b5c3"))
             widget.setItem(row, column, item)
     widget.setSortingEnabled(True)
     widget.setCurrentCell(-1, -1)
@@ -102,22 +141,30 @@ def fill_table(widget, rows):
 
 
 class Window(QMainWindow):
-    def __init__(self, demo=False):
+    def __init__(self, demo=False, theme=None):
         super().__init__()
+        self.theme = theme if theme is not None else ThemeController(QApplication.instance())
         self.demo = Demo() if demo else None
         self.process = None
         self.busy = False
         self.active_command = None
         self.loaded = set()
         self.setWindowTitle("SELinux Manager" + (" · Demo" if demo else ""))
-        self.resize(1120, 850)
-        self.setMinimumSize(850, 680)
+        self.resize(1200, 940)
+        self.setMinimumSize(940, 800)
         root = QWidget()
+        root.setObjectName("appRoot")
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(24, 20, 24, 12)
         header = QHBoxLayout()
+        self.logo = QLabel()
+        self.logo.setFixedSize(48, 48)
+        header.addWidget(self.logo)
         titles = QVBoxLayout()
+        eyebrow = QLabel("SYSTEM SECURITY")
+        eyebrow.setObjectName("eyebrow")
+        titles.addWidget(eyebrow)
         title = QLabel("SELinux Manager")
         title.setObjectName("title")
         titles.addWidget(title)
@@ -129,6 +176,8 @@ class Window(QMainWindow):
         self.badge = QLabel("DEMO · IN MEMORY" if demo else "LOCAL SYSTEM")
         self.badge.setObjectName("badge")
         header.addWidget(self.badge)
+        header.addSpacing(12)
+        header.addWidget(button("Settings", lambda: self.navigation.setCurrentRow(6)))
         layout.addLayout(header)
         if demo:
             layout.addWidget(note("Demo mode uses illustrative data. All changes stay in memory and disappear when you close the app."))
@@ -137,10 +186,23 @@ class Window(QMainWindow):
         self.workspace = QWidget()
         body = QHBoxLayout(self.workspace)
         body.setContentsMargins(0, 12, 0, 0)
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(200)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(12, 18, 12, 16)
+        section = QLabel("WORKSPACE")
+        section.setObjectName("eyebrow")
+        sidebar_layout.addWidget(section)
         self.navigation = QListWidget()
-        self.navigation.addItems(["Overview", "Booleans", "Network ports", "File labeling", "Policy modules", "Audit denials"])
-        self.navigation.setFixedWidth(185)
-        body.addWidget(self.navigation)
+        self.navigation.setObjectName("navigation")
+        self.navigation.setIconSize(QSize(21, 21))
+        self.navigation.addItems(["Overview", "Booleans", "Network ports", "File labeling", "Policy modules", "Audit denials", "Settings"])
+        sidebar_layout.addWidget(self.navigation, 1)
+        footer = QLabel("SELinux Manager\nLocal policy administration")
+        footer.setObjectName("subtitle")
+        sidebar_layout.addWidget(footer)
+        body.addWidget(sidebar)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         splitter.addWidget(self.workspace)
@@ -150,9 +212,14 @@ class Window(QMainWindow):
         self.make_contexts()
         self.make_modules()
         self.make_audit()
+        self.make_settings()
+        for kind in (QLineEdit, QComboBox, QPushButton):
+            for widget in self.pages.findChildren(kind):
+                widget.setMinimumHeight(max(38, widget.minimumHeight()))
         log_box = QWidget()
+        log_box.setObjectName("activity")
         log_layout = QVBoxLayout(log_box)
-        log_layout.setContentsMargins(0, 6, 0, 0)
+        log_layout.setContentsMargins(16, 12, 16, 14)
         log_header = QHBoxLayout()
         log_header.addWidget(QLabel("Command activity"))
         log_header.addStretch()
@@ -167,21 +234,48 @@ class Window(QMainWindow):
         self.navigation.currentRowChanged.connect(self.select_page)
         self.navigation.setCurrentRow(0)
         self.statusBar().showMessage("Ready")
+        self.theme.changed.connect(self.update_appearance)
+        self.update_appearance(self.theme.effective)
         QTimer.singleShot(0, lambda: self.refresh(0))
 
     def page(self, title, description):
         page = QWidget()
+        page.setObjectName("pageContent")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(14, 0, 0, 0)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(12)
         label = QLabel(title)
-        label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        label.setObjectName("pageTitle")
         layout.addWidget(label)
         layout.addWidget(note(description))
-        self.pages.addWidget(page)
+        scroll = QScrollArea()
+        scroll.setObjectName("page")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setViewportMargins(8, 8, 8, 8)
+        scroll.setWidget(page)
+        self.pages.addWidget(scroll)
         return layout
 
     def make_overview(self):
         layout = self.page("System overview", "Inspect SELinux on this host. Runtime mode changes take effect immediately and do not change the boot configuration.")
+        metrics = QHBoxLayout()
+        self.metrics = {}
+        for key, label in (("SELinux status", "SELINUX STATUS"), ("Current mode", "RUNTIME MODE"), ("Loaded policy name", "ACTIVE POLICY")):
+            card = QFrame()
+            card.setObjectName("metric")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(16, 14, 16, 14)
+            caption = QLabel(label)
+            caption.setObjectName("metricLabel")
+            value = QLabel("—")
+            value.setObjectName("metricValue")
+            card_layout.addWidget(caption)
+            card_layout.addWidget(value)
+            self.metrics[key] = value
+            metrics.addWidget(card)
+        layout.addLayout(metrics)
         self.status_text = text_view()
         self.status_text.setPlaceholderText("Reading system status…")
         layout.addWidget(self.status_text, 1)
@@ -314,6 +408,66 @@ class Window(QMainWindow):
         self.audit_text.setPlaceholderText("Click Read denials to query the audit log.")
         layout.addWidget(self.audit_text, 1)
 
+    def make_settings(self):
+        layout = self.page("Settings", "Make this workspace your own. Appearance changes apply immediately and are remembered for your next session.")
+        card = QFrame()
+        card.setObjectName("settingsCard")
+        contents = QVBoxLayout(card)
+        contents.setContentsMargins(20, 20, 20, 20)
+        contents.setSpacing(16)
+        heading = QLabel("Appearance")
+        heading.setObjectName("pageTitle")
+        contents.addWidget(heading)
+        description = QLabel("Choose a theme, or let your desktop decide.")
+        description.setObjectName("subtitle")
+        contents.addWidget(description)
+        choices = QHBoxLayout()
+        self.theme_group = QButtonGroup(self)
+        self.theme_buttons = {}
+        for index, (key, label, detail) in enumerate([
+            ("system", "Follow system", "Match your desktop"),
+            ("light", "Light", "Bright and clear"),
+            ("dark", "Dark", "Easy on the eyes"),
+        ]):
+            choice = QPushButton(label + "\n\n" + detail)
+            choice.setObjectName("themeChoice")
+            choice.setCheckable(True)
+            choice.setMinimumHeight(110)
+            self.theme_group.addButton(choice, index)
+            self.theme_buttons[key] = choice
+            choices.addWidget(choice)
+        self.theme_group.idClicked.connect(lambda index: self.theme.set_preference(("system", "light", "dark")[index]))
+        contents.addLayout(choices)
+        self.theme_status = QLabel()
+        self.theme_status.setObjectName("subtitle")
+        self.theme_status.setWordWrap(True)
+        contents.addWidget(self.theme_status)
+        layout.addWidget(card)
+        layout.addWidget(note("Follow system updates this app when you switch your desktop between light and dark. Light and Dark keep your chosen appearance regardless of the desktop setting."))
+        layout.addStretch()
+
+    def update_appearance(self, theme):
+        colors = COLORS[theme]
+        for index in range(self.navigation.count()):
+            self.navigation.item(index).setIcon(navigation_icon(index, colors["muted"]))
+        self.logo.setPixmap(navigation_icon(0, colors["accent"]).pixmap(QSize(44, 44)))
+        self.theme_buttons[self.theme.preference].setChecked(True)
+        if self.theme.preference == "system":
+            source = "Following your desktop"
+            if self.theme.portal_scheme is None and self.theme.system_scheme == Qt.ColorScheme.Unknown:
+                source = "Desktop preference unavailable; using the startup palette"
+        else:
+            source = "App preference"
+        self.theme_status.setText(f"{source} · {theme.capitalize()} theme")
+        self.recolor_booleans()
+
+    def recolor_booleans(self):
+        colors = COLORS[self.theme.effective]
+        for row in range(self.booleans.rowCount()):
+            item = self.booleans.item(row, 1)
+            if item:
+                item.setForeground(QColor(colors["success"] if item.text() == "on" else colors["muted"]))
+
     @staticmethod
     def filter_table(widget, query):
         for row in range(widget.rowCount()):
@@ -322,11 +476,11 @@ class Window(QMainWindow):
 
     def select_page(self, index):
         self.pages.setCurrentIndex(index)
-        if index not in self.loaded and index not in (0, 5) and not self.busy:
+        if index not in self.loaded and index not in (0, 5, 6) and not self.busy:
             self.refresh(index)
 
     def refresh(self, index):
-        if self.busy:
+        if self.busy or index == 6:
             return
         commands = {
             0: Command("sestatus"),
@@ -344,6 +498,9 @@ class Window(QMainWindow):
         if index == 0:
             self.status_text.setPlainText(output)
             status = {k.strip(): v.strip() for k, v in parse_status(output).items()}
+            for key, label in self.metrics.items():
+                value = status.get(key, "Unavailable")
+                label.setText(value.capitalize() if key != "Loaded policy name" else value)
             current = status.get("Current mode", "unknown").capitalize()
             self.mode_apply.setEnabled(current in ("Enforcing", "Permissive"))
             if current in ("Enforcing", "Permissive"):
@@ -352,6 +509,7 @@ class Window(QMainWindow):
                 self.badge.setText("SELINUX · " + (status.get("SELinux status", "unknown").upper() if current == "Unknown" else current.upper()))
         elif index == 1:
             fill_table(self.booleans, parse_booleans(output))
+            self.recolor_booleans()
             self.filter_table(self.booleans, self.boolean_filter.text())
         elif index == 2:
             fill_table(self.ports_table, parse_ports(output))
@@ -568,7 +726,6 @@ def main():
     app = QApplication([sys.argv[0]])
     app.setApplicationName("SELinux Manager")
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
     window = Window(args.demo)
     window.show()
     sys.exit(app.exec())

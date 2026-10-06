@@ -5,12 +5,15 @@ from pathlib import Path
 import sys
 import time
 import unittest
+import tempfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
     from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtCore import QSettings, Qt
     from app import Window, STYLE
+    from themes import COLORS, ThemeController
     from backend import Command, boolean_command
 except ImportError:
     QApplication = None
@@ -25,7 +28,10 @@ class GuiTests(unittest.TestCase):
         cls.qt.setStyleSheet(STYLE)
 
     def setUp(self):
-        self.window = Window(demo=True)
+        self.temp = tempfile.TemporaryDirectory()
+        settings = QSettings(str(Path(self.temp.name) / "settings.ini"), QSettings.Format.IniFormat)
+        self.theme = ThemeController(self.qt, settings=settings, connect_platform=False)
+        self.window = Window(demo=True, theme=self.theme)
         self.window.show()
         self.wait_idle()
 
@@ -34,6 +40,9 @@ class GuiTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         self.qt.processEvents()
+        self.theme.deleteLater()
+        self.qt.processEvents()
+        self.temp.cleanup()
 
     def wait_idle(self):
         deadline = time.monotonic() + 5
@@ -45,7 +54,7 @@ class GuiTests(unittest.TestCase):
         self.qt.processEvents()
 
     def test_all_pages_and_search(self):
-        for page in range(6):
+        for page in range(7):
             self.window.navigation.setCurrentRow(page)
             self.wait_idle()
             self.assertEqual(self.window.pages.currentIndex(), page)
@@ -56,6 +65,93 @@ class GuiTests(unittest.TestCase):
         visible = [self.window.booleans.item(r, 0).text() for r in range(self.window.booleans.rowCount())
                    if not self.window.booleans.isRowHidden(r)]
         self.assertEqual(len(visible), 2)
+
+    def test_settings_switch_themes_and_remember_choice(self):
+        self.window.navigation.setCurrentRow(6)
+        for choice in ("dark", "light"):
+            self.window.theme_buttons[choice].click()
+            self.qt.processEvents()
+            self.assertEqual(self.theme.effective, choice)
+            self.assertEqual(self.theme.settings.value("appearance/theme"), choice)
+            self.assertIn(COLORS[choice]["bg"], self.qt.styleSheet())
+        restored = ThemeController(self.qt, self.theme.settings, connect_platform=False)
+        self.assertEqual(restored.preference, "light")
+        restored.deleteLater()
+
+    def test_small_window_scrolls_without_overlapping_form_fields(self):
+        self.window.resize(940, 800)
+        self.window.navigation.setCurrentRow(3)
+        self.wait_idle()
+        fields = [self.window.context_action, self.window.pattern, self.window.file_type, self.window.context_type]
+        for previous, following in zip(fields, fields[1:]):
+            self.assertGreaterEqual(previous.height(), 38)
+            self.assertFalse(previous.geometry().intersects(following.geometry()))
+        scroll = self.window.pages.currentWidget()
+        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+
+    def test_live_system_theme_changes_and_manual_override(self):
+        self.theme.set_preference("system")
+        self.theme.system_changed(Qt.ColorScheme.Dark)
+        self.assertEqual(self.theme.effective, "dark")
+        self.theme.system_changed(Qt.ColorScheme.Light)
+        self.assertEqual(self.theme.effective, "light")
+        self.theme.set_preference("dark")
+        self.theme.system_changed(Qt.ColorScheme.Light)
+        self.assertEqual(self.theme.effective, "dark")
+        self.theme.set_preference("system")
+        self.assertEqual(self.theme.effective, "light")
+
+    def test_portal_preference_and_boolean_contrast(self):
+        self.window.navigation.setCurrentRow(1)
+        self.wait_idle()
+        self.theme.set_preference("system")
+        self.theme.system_changed(Qt.ColorScheme.Unknown)
+        for value, effective in ((1, "dark"), (2, "light")):
+            self.theme.update_portal(value)
+            self.assertEqual(self.theme.effective, effective)
+            for row in range(self.window.booleans.rowCount()):
+                item = self.window.booleans.item(row, 1)
+                expected = COLORS[effective]["success" if item.text() == "on" else "muted"]
+                self.assertEqual(item.foreground().color().name(), expected)
+        self.theme.update_portal(0)
+        self.assertEqual(self.theme.effective, self.theme.fallback)
+
+    def test_portal_startup_read_and_typed_notifications(self):
+        from PyQt6.QtDBus import QDBusMessage, QDBusPendingCall, QDBusVariant
+        from unittest.mock import Mock
+        request = QDBusMessage.createMethodCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings", "Read")
+        reply = request.createReply([QDBusVariant(QDBusVariant(1))])
+        bus = Mock()
+        bus.isConnected.return_value = True
+        bus.asyncCall.return_value = QDBusPendingCall.fromCompletedCall(reply)
+        with patch("themes.QDBusConnection.sessionBus", return_value=bus):
+            theme = ThemeController(self.qt, self.theme.settings)
+            # Finished replies are delivered through the Qt event loop.
+            for _ in range(10):
+                self.qt.processEvents()
+            self.assertEqual(theme.portal_scheme, "dark")
+            self.assertEqual(theme.effective, "dark")
+            registered_slot = bus.connect.call_args.args[-1]
+            registered_slot("org.freedesktop.appearance", "color-scheme", QDBusVariant(2))
+            self.assertEqual(theme.effective, "light")
+            registered_slot("unrelated", "color-scheme", QDBusVariant(1))
+            self.assertEqual(theme.effective, "light")
+            theme.set_preference("dark")
+            registered_slot("org.freedesktop.appearance", "color-scheme", QDBusVariant(2))
+            self.assertEqual(theme.effective, "dark")
+            theme.set_preference("system")
+            self.assertEqual(theme.effective, "light")
+            theme.deleteLater()
+
+    def test_missing_portal_is_a_nonfatal_fallback(self):
+        from unittest.mock import Mock
+        bus = Mock()
+        bus.isConnected.return_value = False
+        with patch("themes.QDBusConnection.sessionBus", return_value=bus):
+            theme = ThemeController(self.qt, self.theme.settings)
+            self.assertIn(theme.effective, ("light", "dark"))
+            bus.asyncCall.assert_not_called()
+            theme.deleteLater()
 
     def test_policy_store_reads_always_request_elevation(self):
         for index in range(6):
