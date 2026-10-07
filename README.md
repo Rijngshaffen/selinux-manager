@@ -118,6 +118,8 @@ Install the system packages from the setup section. If you're just exploring the
 
 The app waits for the active command to finish before allowing another policy operation or closing. Commands run in the background so the window stays responsive, and policy transactions aren't interrupted by a timeout.
 
+If a command is stuck, for example while waiting for an authentication prompt that never appears, use **Cancel command** in the status bar. Cancelling stops commands that are still running as your user, including a pending authentication request. A command that has already started running as administrator is left to finish, so a policy transaction is never cut off halfway.
+
 ### Follow system doesn't pick up a desktop theme change
 
 First, check that **Follow system** is selected in Settings. The desktop needs to expose its appearance preference through Qt's platform integration or the XDG desktop portal's Settings interface. Settings shows when no desktop preference is available; you can choose Light or Dark directly in that case.
@@ -144,7 +146,7 @@ To run without a display server:
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-Backend tests work without Qt; GUI tests are skipped if PyQt6 isn't installed. The tests use sample data and temporary child processes and don't change SELinux settings. They cover command construction, parsing, input validation, privilege routing, navigation, filtering, cancellation, and process errors. Appearance tests use temporary preference files and simulated Qt and desktop-portal events to check theme switching, persistence, and fallbacks.
+Backend tests work without Qt; GUI tests are skipped if PyQt6 isn't installed. The tests use sample data and temporary child processes and don't change SELinux settings. They cover command construction, parsing, input validation, privilege routing, navigation, filtering, cancellation, failed-refresh recovery, and process errors. Appearance tests use temporary preference files and simulated Qt and desktop-portal events to check theme switching, persistence, and fallbacks.
 
 ## Further reading
 

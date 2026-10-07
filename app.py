@@ -148,6 +148,8 @@ class Window(QMainWindow):
         self.process = None
         self.busy = False
         self.active_command = None
+        self.failed = None
+        self.cancelled = False
         self.loaded = set()
         self.setWindowTitle("SELinux Manager" + (" · Demo" if demo else ""))
         self.resize(1200, 940)
@@ -234,6 +236,9 @@ class Window(QMainWindow):
         self.navigation.currentRowChanged.connect(self.select_page)
         self.navigation.setCurrentRow(0)
         self.statusBar().showMessage("Ready")
+        self.cancel_button = button("Cancel command", self.cancel)
+        self.cancel_button.hide()
+        self.statusBar().addPermanentWidget(self.cancel_button)
         self.theme.changed.connect(self.update_appearance)
         self.update_appearance(self.theme.effective)
         QTimer.singleShot(0, lambda: self.refresh(0))
@@ -334,7 +339,7 @@ class Window(QMainWindow):
         layout.addLayout(form)
         row = QHBoxLayout()
         self.local_ports = QCheckBox("Show local customizations only")
-        self.local_ports.toggled.connect(lambda: self.refresh(2))
+        self.local_ports.toggled.connect(lambda: self.refresh(2, lambda: self.revert_toggle(self.local_ports)))
         row.addWidget(self.local_ports)
         row.addStretch()
         row.addWidget(button("Refresh", lambda: self.refresh(2)))
@@ -366,7 +371,7 @@ class Window(QMainWindow):
         row = QHBoxLayout()
         self.local_contexts = QCheckBox("Show local customizations only")
         self.local_contexts.setChecked(True)
-        self.local_contexts.toggled.connect(lambda: self.refresh(3))
+        self.local_contexts.toggled.connect(lambda: self.refresh(3, lambda: self.revert_toggle(self.local_contexts)))
         row.addWidget(self.local_contexts)
         row.addStretch()
         row.addWidget(button("Refresh", lambda: self.refresh(3)))
@@ -474,12 +479,19 @@ class Window(QMainWindow):
             values = " ".join(widget.item(row, col).text() for col in range(widget.columnCount()))
             widget.setRowHidden(row, query.lower() not in values.lower())
 
+    @staticmethod
+    def revert_toggle(checkbox):
+        # The listing failed, so the view still shows the previous choice.
+        blocker = QSignalBlocker(checkbox)
+        checkbox.setChecked(not checkbox.isChecked())
+        del blocker
+
     def select_page(self, index):
         self.pages.setCurrentIndex(index)
         if index not in self.loaded and index not in (0, 5, 6) and not self.busy:
             self.refresh(index)
 
-    def refresh(self, index):
+    def refresh(self, index, failed=None):
         if self.busy or index == 6:
             return
         commands = {
@@ -491,7 +503,7 @@ class Window(QMainWindow):
             4: Command("semodule", ("-l",), True),
             5: Command("ausearch", ("--input-logs", "-m", "AVC,USER_AVC", "-ts", self.audit_period.currentText(), "-i"), True),
         }
-        self.run(commands[index], lambda output: self.show_result(index, output))
+        self.run(commands[index], lambda output: self.show_result(index, output), failed)
 
     def show_result(self, index, output):
         self.loaded.add(index)
@@ -599,10 +611,12 @@ class Window(QMainWindow):
     def append_log(self, text):
         self.log.appendPlainText(text.rstrip())
 
-    def run(self, command, callback):
+    def run(self, command, callback, failed=None):
         if self.busy:
             return
         self.busy = True
+        self.failed = failed
+        self.cancelled = False
         self.active_command = command
         self.workspace.setEnabled(False)
         self.statusBar().showMessage("Running: " + command.display)
@@ -628,6 +642,16 @@ class Window(QMainWindow):
         process.errorOccurred.connect(lambda error: self.process_error(process, error, callback))
         process.finished.connect(lambda code, status: self.process_finished(process, code, status, command, callback))
         process.start(program, args)
+        self.cancel_button.show()
+
+    def cancel(self):
+        if self.process is None or self.cancelled:
+            return
+        self.cancelled = True
+        # The kill only reaches commands still running as this user, including pkexec
+        # while it waits for authentication. A started root transaction is left intact.
+        self.statusBar().showMessage("Cancelling… a command already running as administrator will finish first.")
+        self.process.kill()
 
     def demo_result(self, command, callback):
         try:
@@ -660,6 +684,7 @@ class Window(QMainWindow):
         normal = status == QProcess.ExitStatus.NormalExit
         no_matches = command.tool == "ausearch" and code == 1 and (output + error).strip() == "<no matches>"
         success = normal and (code == 0 or no_matches)
+        cancelled = self.cancelled and not normal
         if no_matches:
             output, error = "No matching audit events.\n", ""
         if not success:
@@ -668,13 +693,21 @@ class Window(QMainWindow):
             self.append_log("Output limited to 8 MB per stream.")
         self.process = None
         process.deleteLater()
-        self.complete(success, output, error, callback)
+        self.complete(success, output, error, callback, cancelled)
 
-    def complete(self, success, output, error, callback):
+    def complete(self, success, output, error, callback, cancelled=False):
         command = self.active_command
+        failed, self.failed = self.failed, None
         self.busy = False
         self.workspace.setEnabled(True)
+        self.cancel_button.hide()
         self.active_command = None
+        if cancelled:
+            self.append_log("Command cancelled.")
+            self.statusBar().showMessage("Last command cancelled")
+            if failed:
+                failed()
+            return
         if output:
             self.append_log(output)
         if error:
@@ -684,6 +717,8 @@ class Window(QMainWindow):
         if success:
             callback(output)
         else:
+            if failed:
+                failed()
             explanation = ""
             if command and command.tool in ("semanage", "semodule") and any(
                 marker in error.lower() for marker in (
@@ -713,7 +748,7 @@ class Window(QMainWindow):
 
     def closeEvent(self, event):
         if self.busy:
-            self.statusBar().showMessage("Wait for the current command to finish before closing.")
+            self.statusBar().showMessage("Wait for the current command to finish, or cancel it, before closing.")
             event.ignore()
         else:
             event.accept()

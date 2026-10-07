@@ -59,7 +59,7 @@ def stylesheet(theme):
     }}
     QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{ border-color: {accent}; }}
     QLineEdit:disabled, QComboBox:disabled {{ color: {disabled}; }}
-    QComboBox {{ min-height: 18px; padding-right: 24px; }}
+    QComboBox {{ min-height: 20px; padding-right: 24px; }}
     QComboBox::drop-down {{ border: none; width: 24px; }}
     QComboBox::down-arrow {{ image: url("{arrow}"); width: 16px; height: 16px; }}
     QComboBox QAbstractItemView {{ background: {surface}; color: {text}; border: 1px solid {border}; selection-background-color: {selected}; selection-color: {selected_text}; }}

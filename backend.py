@@ -125,6 +125,10 @@ def parse_status(output):
     return dict(line.split(":", 1) for line in output.splitlines() if ":" in line)
 
 
+FILE_TYPES = {"a": "all files", "f": "regular file", "d": "directory", "c": "character device",
+              "b": "block device", "s": "socket", "l": "symbolic link", "p": "named pipe"}
+
+
 class Demo:
     """In-memory fixtures. No processes or filesystem changes are performed."""
     def __init__(self):
@@ -157,8 +161,8 @@ class Demo:
                 self.local_port_rows.append([a[a.index("-t") + 1], protocol, value])
         elif cmd.tool == "semanage" and a[0] == "fcontext":
             if "-l" in a:
-                local = "\n".join(f"{p}    {t}    system_u:object_r:{kind}:s0"
-                                    for p, (t, kind) in self.contexts.items())
+                local = "\n".join(f"{p}    {FILE_TYPES[kind]}    system_u:object_r:{t}:s0"
+                                    for p, (kind, t) in self.contexts.items())
                 return local if "-C" in a else "/var/www(/.*)?    all files    system_u:object_r:httpd_sys_content_t:s0\n" + local
             if "--delete" in a:
                 self.contexts.pop(a[-1], None)

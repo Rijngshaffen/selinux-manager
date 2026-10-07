@@ -250,6 +250,29 @@ class GuiTests(unittest.TestCase):
         self.window.close()
         self.assertFalse(self.window.isVisible())
 
+    def test_cancel_stops_a_running_command_without_an_error_dialog(self):
+        self.window.demo = None
+        failures = []
+        with patch("app.launch_arguments", return_value=(sys.executable, ["-c", "import time; time.sleep(30)"])), patch.object(QMessageBox, "warning") as warning:
+            self.window.run(Command("sestatus"), lambda output: self.fail("Unexpected success"), lambda: failures.append(True))
+            self.assertTrue(self.window.process.waitForStarted(5000))
+            self.assertFalse(self.window.cancel_button.isHidden())
+            self.window.cancel_button.click()
+            self.wait_idle()
+            warning.assert_not_called()
+        self.assertEqual(failures, [True])
+        self.assertTrue(self.window.cancel_button.isHidden())
+        self.assertIn("Command cancelled.", self.window.log.toPlainText())
+
+    def test_failed_listing_reverts_local_only_checkbox(self):
+        self.window.demo = None
+        for checkbox in (self.window.local_ports, self.window.local_contexts):
+            before = checkbox.isChecked()
+            with self.subTest(before=before), patch("app.launch_arguments", side_effect=FileNotFoundError("Missing tool")), patch.object(QMessageBox, "warning") as warning:
+                checkbox.setChecked(not before)
+                self.assertTrue(warning.called)
+                self.assertEqual(checkbox.isChecked(), before)
+
     def test_audit_read_errors_not_hidden_by_no_matches(self):
         self.window.demo = None
         with patch("app.launch_arguments", return_value=(sys.executable, ["-c", "import sys; print('<no matches>'); print('Permission denied', file=sys.stderr); sys.exit(1)"])), patch.object(QMessageBox, "warning") as warning:
